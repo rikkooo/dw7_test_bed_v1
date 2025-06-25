@@ -89,6 +89,14 @@ class Governor:
         workflow_manager = WorkflowManager() # We still need access to its methods for now.
         workflow_manager._validate_stage(allow_failures=with_tech_debt)
         workflow_manager._run_pre_transition_actions()
+
+        # Commit all changes before finalizing the transition
+        print("--- Governor: Committing all changes ---")
+        commit_message = f"feat: Finalize work for {old_stage} stage"
+        git_manager = git_handler.GitManager(str(Path.cwd()))
+        git_manager.commit_all(commit_message)
+        print("--- Governor: Committing complete ---")
+
         self._transition_to_next_stage(next_stage) # This method now belongs to the Governor
         workflow_manager._run_post_transition_actions(old_stage)
         self.state.save()

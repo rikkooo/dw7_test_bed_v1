@@ -275,16 +275,6 @@ def main():
         except PermissionError:
             sys.exit(1)
     elif args.command == "approve":
-        # First, commit all changes with a standardized message
-        print("--- Committing all changes before approval ---")
-        current_stage = manager.get_state().get("CurrentStage")
-        commit_message = f"feat: Finalize work for {current_stage} stage"
-        
-        git_manager = GitManager(str(Path.cwd()))
-        git_manager.commit_all(commit_message)
-        print("--- Committing complete ---")
-
-        # Now, proceed with the approval process
         manager.approve(next_stage=args.next_stage, with_tech_debt=args.with_tech_debt)
     elif args.command == "new":
         augmenter = PromptAugmenter()
