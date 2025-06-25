@@ -124,6 +124,25 @@ class Governor:
                 print(f"ERROR: Exit criteria for 'Researcher' not met. Research report not found: {report_file}", file=sys.stderr)
                 sys.exit(1)
             print("Governor: 'Researcher' exit criteria met.")
+        elif self.current_stage == "Validator":
+            tests_dir = Path("tests")
+            if not tests_dir.is_dir():
+                msg = f"ERROR: Exit criteria for 'Validator' not met. Tests directory not found: {tests_dir}"
+                if allow_failures:
+                    print(f"WARNING: {msg}")
+                    return False
+                print(msg, file=sys.stderr)
+                sys.exit(1)
+            
+            test_files = list(tests_dir.glob("test_*.py"))
+            if not test_files:
+                msg = f"ERROR: Exit criteria for 'Validator' not met. No test files (test_*.py) found in {tests_dir}"
+                if allow_failures:
+                    print(f"WARNING: {msg}")
+                    return False
+                print(msg, file=sys.stderr)
+                sys.exit(1)
+            print("Governor: 'Validator' exit criteria met. Test files are present.")
 
     def _transition_to_next_stage(self, next_stage=None):
         possible_next_stages = STAGE_TRANSITIONS.get(self.current_stage, [])
@@ -227,7 +246,11 @@ class WorkflowManager:
             sys.exit(1)
 
         try:
-            # Use sys.executable to ensure we're using the python from the current venv
+            # Install testing dependencies and run pytest
+            print("Installing testing dependencies...")
+            subprocess.run(["uv", "pip", "install", ".[test]"], check=True)
+            print("Dependencies installed.")
+
             python_executable = sys.executable
             collect_result = subprocess.run([python_executable, "-m", "pytest", "--collect-only"], 
                                           capture_output=True, text=True, check=True)
@@ -286,12 +309,17 @@ class WorkflowManager:
             print("Pytest validation successful.")
             return True
 
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
             msg = "ERROR: pytest command not found or failed to run. Is it installed in your venv?"
+            print(msg, file=sys.stderr)
+            if isinstance(e, subprocess.CalledProcessError):
+                print("--- Pytest STDOUT ---", file=sys.stderr)
+                print(e.stdout, file=sys.stderr)
+                print("--- Pytest STDERR ---", file=sys.stderr)
+                print(e.stderr, file=sys.stderr)
             if allow_failures:
                 print(f"WARNING: {msg}")
                 return False
-            print(msg, file=sys.stderr)
             sys.exit(1)
 
     def _validate_deployment(self):

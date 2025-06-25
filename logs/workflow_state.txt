@@ -1,3 +1,3 @@
-CurrentStage=Coder
+CurrentStage=Validator
 RequirementPointer=6
-LastCommitSHA_pre_transition=378a7253a5f9524b7d321a58066a805da5e11c89
+LastCommitSHA_pre_transition=6e7702d7d168c957c82ad1c24ee04b904fdd375a
