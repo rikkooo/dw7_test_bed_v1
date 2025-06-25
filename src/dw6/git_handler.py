@@ -65,11 +65,35 @@ class GitManager:
             self._run_command(["git", "remote", "add", "origin", remote_url])
 
     def commit_all(self, message: str):
-        """Adds all changes and commits them."""
+        """Adds all changes and commits them, handling the 'nothing to commit' case."""
         print("Adding all files to staging...")
         self._run_command(["git", "add", "."])
-        print(f"Committing with message: {message}")
-        self._run_command(["git", "commit", "-m", message, "--no-verify"])
+
+        print(f"Attempting to commit with message: {message}")
+        command = ["git", "commit", "-m", message, "--no-verify"]
+        
+        # Run commit command directly to handle specific exit codes
+        result = subprocess.run(
+            command,
+            cwd=self.project_path,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy()
+        )
+
+        if result.returncode == 0:
+            # Successful commit
+            print(result.stdout)
+        elif result.returncode == 1 and ("nothing to commit" in result.stdout or "no changes added to commit" in result.stdout):
+            # This is an expected state, not an error.
+            print("Working directory is clean. Nothing to commit.")
+        else:
+            # A real error occurred.
+            print(f"ERROR running command: {' '.join(command)}", file=sys.stderr)
+            print(f"Return Code: {result.returncode}", file=sys.stderr)
+            print(f"STDOUT: {result.stdout}", file=sys.stderr)
+            print(f"STDERR: {result.stderr}", file=sys.stderr)
+            sys.exit(1)
 
     def _get_authenticated_url(self):
         """Constructs an authenticated URL for the 'origin' remote."""
