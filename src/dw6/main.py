@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from dw6.state_manager import WorkflowManager, STAGES
 from dw6.augmenter import PromptAugmenter
 from dw6.templates import process_prompt
+from dw6.git_handler import GitManager
 
 META_LOG_FILE = Path("logs/meta_requirements.log")
 TECH_DEBT_FILE = Path("logs/technical_debt.log")
@@ -62,6 +63,98 @@ def register_technical_debt(description, issue_type="test", commit_to_fix=None):
     
     print(f"Successfully logged technical debt {new_id}.")
     return new_id
+
+def setup_project(project_name: str, remote_url: str):
+    """Orchestrates the project's Git setup using GitManager."""
+    project_path = Path.cwd()
+    print(f"--- Starting DW7 Project Setup for: {project_name} ---")
+    print(f"Project Path: {project_path}")
+
+    git_manager = GitManager(str(project_path))
+
+    # 1. Initialize Git repository
+    git_manager.initialize_repo()
+
+    # 2. Create .gitignore file
+    gitignore_path = project_path / ".gitignore"
+    if not gitignore_path.exists():
+        print("Creating .gitignore file...")
+        # Standard Python .gitignore content
+        gitignore_content = """# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+.hypothesis/
+
+# Translations
+*.mo
+*.pot
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Other
+.mypy_cache/
+"""
+        gitignore_path.write_text(gitignore_content)
+    else:
+        print(".gitignore already exists.")
+
+    # 3. Add remote repository
+    git_manager.add_remote(remote_url)
+
+    # 4. Commit all initial files
+    git_manager.commit_all("Initial commit: DW7 project setup")
+
+    # 5. Push to remote
+    git_manager.push_to_remote(set_upstream=True)
+
+    print("--- DW7 Project Setup Complete ---")
+    print(f"Project '{project_name}' is ready and pushed to remote.")
+
 
 def revert_to_previous_stage(manager, target_stage_name=None):
     """Reverts the workflow to the previous stage or a specified target stage."""
@@ -127,6 +220,11 @@ def main():
     do_parser = subparsers.add_parser("do", help="Execute a governed action.")
     do_parser.add_argument("action", type=str, help="The action to execute.")
 
+    # Setup command
+    setup_parser = subparsers.add_parser("setup", help="Initialize the project repository and push to remote.")
+    setup_parser.add_argument("project_name", type=str, help="The name of the project (e.g., dw7_test_bed_v1).")
+    setup_parser.add_argument("remote_url", type=str, help="The HTTPS URL of the remote GitHub repository.")
+
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit(1)
@@ -152,6 +250,8 @@ def main():
         augmenter = PromptAugmenter()
         augmented_prompt = augmenter.augment_prompt(args.prompt)
         process_prompt(augmented_prompt)
+    elif args.command == "setup":
+        setup_project(args.project_name, args.remote_url)
 
 if __name__ == "__main__":
     main()
