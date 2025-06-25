@@ -2,6 +2,14 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.dw6]
+# Configuration for the DW6 workflow tool
+kernel_files = [
+    "src/dw6/state_manager.py",
+    "src/dw6/git_handler.py",
+    "src/dw6/main.py"
+]
+
 [project]
 name = "dw6"
 version = "0.1.0"

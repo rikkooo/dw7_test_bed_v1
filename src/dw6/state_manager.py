@@ -9,7 +9,13 @@ from dw6 import git_handler
 MASTER_FILE = "docs/WORKFLOW_MASTER.md"
 REQUIREMENTS_FILE = "docs/PROJECT_REQUIREMENTS.md"
 APPROVAL_FILE = "logs/approvals.log"
-STAGES = ["Engineer", "Researcher", "Coder", "Validator", "Deployer"]
+STAGE_TRANSITIONS = {
+    "Engineer": ["Researcher", "Coder"],
+    "Researcher": ["Coder"],
+    "Coder": ["Validator"],
+    "Validator": ["Deployer"],
+    "Deployer": ["Engineer"],  # Loop back to the start for the next requirement
+}
 DELIVERABLE_PATHS = {
     "Engineer": "deliverables/engineering",
     "Coder": "deliverables/coding",
@@ -74,7 +80,7 @@ class Governor:
         for rule in rules:
             print(f"  - {rule}")
 
-    def approve(self, with_tech_debt=False):
+    def approve(self, next_stage=None, with_tech_debt=False):
         old_stage = self.current_stage
         print(f"--- Governor: Received Approval Request for Stage: {old_stage} ---")
         self.enforce_rules()
@@ -83,7 +89,7 @@ class Governor:
         workflow_manager = WorkflowManager() # We still need access to its methods for now.
         workflow_manager._validate_stage(allow_failures=with_tech_debt)
         workflow_manager._run_pre_transition_actions()
-        self._transition_to_next_stage() # This method now belongs to the Governor
+        self._transition_to_next_stage(next_stage) # This method now belongs to the Governor
         workflow_manager._run_post_transition_actions()
         self.state.save()
         print(f"--- Governor: Stage {old_stage} Approved. New Stage: {self.state.get('CurrentStage')} ---")
@@ -111,15 +117,29 @@ class Governor:
                 sys.exit(1)
             print("Governor: 'Researcher' exit criteria met.")
 
-    def _transition_to_next_stage(self):
-        current_index = STAGES.index(self.current_stage)
-        # After 'Deployer', the cycle is complete
-        if self.current_stage == "Deployer":
-            self._complete_requirement_cycle()
-            self.current_stage = STAGES[0]
+    def _transition_to_next_stage(self, next_stage=None):
+        possible_next_stages = STAGE_TRANSITIONS.get(self.current_stage, [])
+
+        if not possible_next_stages:
+            print(f"ERROR: No transitions defined for stage '{self.current_stage}'.", file=sys.stderr)
+            sys.exit(1)
+
+        if next_stage:
+            if next_stage not in possible_next_stages:
+                print(f"ERROR: Invalid transition from '{self.current_stage}' to '{next_stage}'.", file=sys.stderr)
+                print(f"Allowed transitions are: {', '.join(possible_next_stages)}", file=sys.stderr)
+                sys.exit(1)
+            new_stage = next_stage
         else:
-            self.current_stage = STAGES[current_index + 1]
-        self.state.set("CurrentStage", self.current_stage)
+            new_stage = possible_next_stages[0] # Default to the first possible transition
+
+        if new_stage == "Engineer": # Assumes 'Engineer' starts a new cycle
+            self._complete_requirement_cycle()
+            # After completing a cycle, the stage is already set to Engineer by _complete_requirement_cycle
+            self.current_stage = self.state.get("CurrentStage")
+        else:
+            self.state.set("CurrentStage", new_stage)
+            self.current_stage = new_stage
 
     def _complete_requirement_cycle(self):
         req_id = int(self.state.get("RequirementPointer"))
@@ -141,9 +161,9 @@ class WorkflowManager:
     def get_state(self):
         return self.state.data
 
-    def approve(self, with_tech_debt=False):
-        # The manager now simply delegates to the governor.
-        self.governor.approve(with_tech_debt=with_tech_debt)
+    def approve(self, next_stage=None, with_tech_debt=False):
+        """Approves the current stage and transitions to the next."""
+        self.governor.approve(next_stage=next_stage, with_tech_debt=with_tech_debt)
 
     def approve_with_tech_debt(self):
         """Approves a stage despite known technical debt."""

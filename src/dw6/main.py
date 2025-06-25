@@ -5,10 +5,11 @@ import re
 import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
-from dw6.state_manager import WorkflowManager, STAGES
+from dw6.state_manager import WorkflowManager, STAGE_TRANSITIONS
 from dw6.augmenter import PromptAugmenter
 from dw6.templates import process_prompt
 from dw6.git_handler import GitManager
+from dw6.kernel_manager import KernelManager
 
 META_LOG_FILE = Path("logs/meta_requirements.log")
 TECH_DEBT_FILE = Path("logs/technical_debt.log")
@@ -158,18 +159,21 @@ venv.bak/
 
 def revert_to_previous_stage(manager, target_stage_name=None):
     """Reverts the workflow to the previous stage or a specified target stage."""
+    # Define the canonical order for reverting purposes, as STAGE_TRANSITIONS is a graph.
+    REVERT_ORDER = ["Engineer", "Researcher", "Coder", "Validator", "Deployer"]
     current_stage = manager.current_stage
-    current_index = STAGES.index(current_stage)
+    current_index = REVERT_ORDER.index(current_stage)
 
     if target_stage_name:
-        if target_stage_name not in STAGES:
-            print(f"Error: Invalid target stage '{target_stage_name}'.", file=sys.stderr)
+        if target_stage_name not in REVERT_ORDER:
+            print(f"Error: Target stage '{target_stage_name}' is not a valid stage.", file=sys.stderr)
             sys.exit(1)
-        target_index = STAGES.index(target_stage_name)
+        target_index = REVERT_ORDER.index(target_stage_name)
     else:
+        # Default to previous stage
         target_index = current_index - 1
 
-    if current_index == 0:
+    if current_index == 0 and target_stage_name is None:
         print("Info: Already at the first stage ('Engineer'). Cannot revert further.", file=sys.stdout)
         sys.exit(0)
 
@@ -177,7 +181,7 @@ def revert_to_previous_stage(manager, target_stage_name=None):
         print("Error: Cannot revert past the first stage.", file=sys.stderr)
         sys.exit(1)
 
-    target_stage = STAGES[target_index]
+    target_stage = REVERT_ORDER[target_index]
 
     if target_index > current_index:
         print(f"Error: Cannot revert forward from {current_stage} to {target_stage}.")
@@ -196,6 +200,7 @@ def main():
 
     # Approve command
     approve_parser = subparsers.add_parser("approve", help="Approve the current stage and advance to the next.")
+    approve_parser.add_argument("--next-stage", help="Specify the next stage to transition to.")
     approve_parser.add_argument("--with-tech-debt", action="store_true", help="Approve the stage even with validation failures, logging them as technical debt.")
 
     # New command
@@ -225,11 +230,36 @@ def main():
     setup_parser.add_argument("project_name", type=str, help="The name of the project (e.g., dw7_test_bed_v1).")
     setup_parser.add_argument("remote_url", type=str, help="The HTTPS URL of the remote GitHub repository.")
 
+    # Kernel-lock command
+    lock_parser = subparsers.add_parser("kernel-lock", help="Lock kernel files (make them read-only).")
+
+    # Kernel-unlock command
+    unlock_parser = subparsers.add_parser("kernel-unlock", help="Unlock kernel files (make them read-write).")
+    unlock_parser.add_argument("--i-am-sure", action="store_true", help="Confirmation flag required to unlock.")
+
+    # Commit command
+    commit_parser = subparsers.add_parser("commit", help="Commit and push all changes.")
+    commit_parser.add_argument("-m", "--message", required=True, help="Commit message.")
+
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit(1)
 
     args = parser.parse_args()
+
+    # Handle kernel commands first as they don't require the WorkflowManager
+    if args.command == "kernel-lock":
+        kernel_manager = KernelManager(Path.cwd())
+        kernel_manager.lock()
+        sys.exit(0)
+    elif args.command == "kernel-unlock":
+        if not args.i_am_sure:
+            print("ERROR: Unlocking the kernel requires confirmation. Use the --i-am-sure flag.", file=sys.stderr)
+            sys.exit(1)
+        kernel_manager = KernelManager(Path.cwd())
+        kernel_manager.unlock()
+        sys.exit(0)
+
     manager = WorkflowManager()
     
     if args.command == "meta-req":
@@ -245,13 +275,19 @@ def main():
         except PermissionError:
             sys.exit(1)
     elif args.command == "approve":
-        manager.approve(with_tech_debt=args.with_tech_debt)
+        manager.approve(next_stage=args.next_stage, with_tech_debt=args.with_tech_debt)
     elif args.command == "new":
         augmenter = PromptAugmenter()
         augmented_prompt = augmenter.augment_prompt(args.prompt)
         process_prompt(augmented_prompt)
     elif args.command == "setup":
         setup_project(args.project_name, args.remote_url)
+    elif args.command == "commit":
+        print("--- Committing and Pushing Changes ---")
+        git_manager = GitManager(str(Path.cwd()))
+        git_manager.commit_all(args.message)
+        git_manager.push_to_remote()
+        print("--- Changes Committed and Pushed Successfully ---")
 
 if __name__ == "__main__":
     main()
