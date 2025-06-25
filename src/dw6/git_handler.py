@@ -159,6 +159,26 @@ class GitManager:
             self._run_command(["git", "remote", "set-url", "origin", original_url], suppress_output=True)
             print("Restored original remote URL.")
 
+    def push_tags(self):
+        """Pushes all local tags to the remote repository."""
+        print("Pushing tags to remote 'origin'...")
+        
+        authenticated_url = self._get_authenticated_url()
+        original_url = self.repo.remotes.origin.url
+
+        try:
+            # Temporarily set the remote URL to the authenticated version
+            self._run_command(["git", "remote", "set-url", "origin", authenticated_url], suppress_output=True)
+            
+            # Now, push tags using the standard 'origin' remote
+            self._run_command(["git", "push", "origin", "--tags"])
+            print("Successfully pushed tags to remote 'origin'.")
+
+        finally:
+            # CRITICAL: Always change the remote URL back to the original, unauthenticated version
+            self._run_command(["git", "remote", "set-url", "origin", original_url], suppress_output=True)
+            print("Restored original remote URL.")
+
     def is_working_directory_clean(self):
         """Checks if the Git working directory is clean."""
         if not self.repo:

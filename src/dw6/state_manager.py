@@ -324,23 +324,26 @@ class WorkflowManager:
 
     def _validate_deployment(self):
         print("Validating deployment...")
-        if not git_handler.is_github_token_present():
+        git_manager = git_handler.GitManager(str(Path.cwd()))
+        
+        latest_commit = git_manager.get_current_commit_sha()
+        if not latest_commit:
+            print("ERROR: Could not get the latest commit SHA.", file=sys.stderr)
             sys.exit(1)
-        latest_commit = git_handler.get_latest_commit_hash()
-        all_remote_tags = git_handler.get_remote_tags_with_commits()
-        if all_remote_tags is None:
-            all_remote_tags = {}
-        matching_tags = [tag for tag, commit in all_remote_tags.items() if commit == latest_commit]
+
+        # Using the repo object from GitManager to check for tags
+        matching_tags = [tag.name for tag in git_manager.repo.tags if tag.commit.hexsha == latest_commit]
+
         if not matching_tags:
-            print("Warning: Could not retrieve remote tags. Falling back to local tag check.")
-            local_tags = git_handler.get_local_tags_for_commit(latest_commit)
-            if not local_tags:
-                print(f"ERROR: The latest commit ({latest_commit[:7]}) has not been tagged.", file=sys.stderr)
-                sys.exit(1)
-            matching_tags = local_tags
+            print(f"ERROR: The latest commit ({latest_commit[:7]}) has not been tagged locally.", file=sys.stderr)
+            sys.exit(1)
+
         print(f"Deployment validation successful: Latest commit is tagged with: {', '.join(matching_tags)}.")
+        
         print("Pushing changes to remote repository...")
-        git_handler.push_to_remote()
+        git_manager.push_to_remote()
+        git_manager.push_tags() # Push the new tag
+        
         return True
 
     def _run_pre_transition_actions(self):
