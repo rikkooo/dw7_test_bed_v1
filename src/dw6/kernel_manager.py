@@ -1,4 +1,5 @@
 # dw6/kernel_manager.py
+# This is a test comment.
 import os
 import stat
 import toml
