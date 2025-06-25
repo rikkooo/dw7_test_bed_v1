@@ -20,12 +20,15 @@ class GitManager:
     def _run_command(self, command: list[str], suppress_output=False):
         """Runs a command in the project directory and handles errors."""
         try:
+            # Ensure the environment for the subprocess is clean and correct
+            env = os.environ.copy()
             result = subprocess.run(
                 command,
                 cwd=self.project_path,
                 check=True,
                 capture_output=True,
                 text=True,
+                env=env
             )
             if not suppress_output:
                 print(result.stdout)
@@ -66,22 +69,49 @@ class GitManager:
         print("Adding all files to staging...")
         self._run_command(["git", "add", "."])
         print(f"Committing with message: {message}")
-        # Use --no-verify to bypass pre-commit hooks if any, for automated commits
         self._run_command(["git", "commit", "-m", message, "--no-verify"])
 
-    def push_to_remote(self, branch="master", set_upstream=False):
-        """Pushes changes to the remote repository, relying on system's credential helper."""
-        print(f"Pushing branch '{branch}' to remote 'origin'...")
-        command = ["git", "push"]
-        if set_upstream:
-            command.extend(["-u", "origin", branch])
-        else:
-            command.extend(["origin", branch])
+    def _get_authenticated_url(self):
+        """Constructs an authenticated URL for the 'origin' remote."""
+        token = os.getenv("GITHUB_TOKEN")
+        if not token:
+            print("ERROR: GITHUB_TOKEN environment variable not set.", file=sys.stderr)
+            print("Please create a .env file in the project root with GITHUB_TOKEN=<your_token>", file=sys.stderr)
+            sys.exit(1)
+
+        if "origin" not in self.repo.remotes:
+            print("ERROR: Remote 'origin' not found.", file=sys.stderr)
+            sys.exit(1)
         
-        # This is the key part: we just run 'git push'.
-        # The environment's credential helper will handle authentication.
-        self._run_command(command, suppress_output=True) # Suppress output for security
-        print(f"Successfully pushed branch '{branch}' to remote 'origin'.")
+        remote_url = self.repo.remotes.origin.url
+        
+        # Use the 'x-access-token' convention for PATs
+        auth_url = remote_url.replace("https://", f"https://x-access-token:{token}@")
+        return auth_url
+
+    def push_to_remote(self, branch="master", set_upstream=False):
+        """Pushes changes to the remote repository using a temporarily authenticated URL."""
+        print(f"Pushing branch '{branch}' to remote 'origin'...")
+        
+        authenticated_url = self._get_authenticated_url()
+        original_url = self.repo.remotes.origin.url
+
+        try:
+            # Temporarily set the remote URL to the authenticated version
+            self._run_command(["git", "remote", "set-url", "origin", authenticated_url], suppress_output=True)
+            
+            # Now, push using the standard 'origin' remote
+            command = ["git", "push"]
+            if set_upstream:
+                command.extend(["-u", "origin", branch])
+            
+            self._run_command(command, suppress_output=True)
+            print(f"Successfully pushed branch '{branch}' to remote 'origin'.")
+            
+        finally:
+            # CRITICAL: Always change the remote URL back to the original, unauthenticated version
+            self._run_command(["git", "remote", "set-url", "origin", original_url], suppress_output=True)
+            print("Restored original remote URL.")
 
     def is_working_directory_clean(self):
         """Checks if the Git working directory is clean."""
@@ -94,4 +124,3 @@ class GitManager:
         if not self.repo:
             return None
         return self.repo.head.commit.hexsha
-
