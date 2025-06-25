@@ -95,6 +95,20 @@ class GitManager:
             print(f"STDERR: {result.stderr}", file=sys.stderr)
             sys.exit(1)
 
+    def get_changes(self, previous_commit_sha):
+        """Returns changed files and diff since a specific commit."""
+        if not previous_commit_sha:
+            return [], ""
+        try:
+            changed_files_str = self._run_command(["git", "diff", "--name-only", previous_commit_sha, "HEAD"]).stdout.strip()
+            changed_files = changed_files_str.split('\n') if changed_files_str else []
+
+            diff_str = self._run_command(["git", "diff", previous_commit_sha, "HEAD"]).stdout
+            return changed_files, diff_str
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting changes: {e}", file=sys.stderr)
+            return [], ""
+
     def _get_authenticated_url(self):
         """Constructs an authenticated URL for the 'origin' remote."""
         token = os.getenv("GITHUB_TOKEN")
@@ -112,6 +126,14 @@ class GitManager:
         # Use the 'x-access-token' convention for PATs
         auth_url = remote_url.replace("https://", f"https://x-access-token:{token}@")
         return auth_url
+
+    def get_current_commit_sha(self):
+        """Returns the SHA of the current HEAD commit."""
+        try:
+            return self._run_command(["git", "rev-parse", "HEAD"]).stdout.strip()
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting current commit SHA: {e}", file=sys.stderr)
+            return None
 
     def push_to_remote(self, branch="master", set_upstream=False):
         """Pushes changes to the remote repository using a temporarily authenticated URL."""
@@ -142,9 +164,3 @@ class GitManager:
         if not self.repo:
             return True
         return not self.repo.is_dirty(untracked_files=True)
-
-    def get_current_commit_sha(self):
-        """Returns the SHA of the current HEAD commit."""
-        if not self.repo:
-            return None
-        return self.repo.head.commit.hexsha

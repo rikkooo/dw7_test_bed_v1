@@ -90,7 +90,7 @@ class Governor:
         workflow_manager._validate_stage(allow_failures=with_tech_debt)
         workflow_manager._run_pre_transition_actions()
         self._transition_to_next_stage(next_stage) # This method now belongs to the Governor
-        workflow_manager._run_post_transition_actions()
+        workflow_manager._run_post_transition_actions(old_stage)
         self.state.save()
         print(f"--- Governor: Stage {old_stage} Approved. New Stage: {self.state.get('CurrentStage')} ---")
 
@@ -308,20 +308,64 @@ class WorkflowManager:
         return True
 
     def _run_pre_transition_actions(self):
-        pass
+        """Actions to run before a stage transition begins."""
+        print("--- Running Pre-Transition Actions ---")
+        # Store the current commit SHA before the transition's commit happens
+        git_manager = git_handler.GitManager(str(Path.cwd()))
+        commit_sha = git_manager.get_current_commit_sha()
+        if commit_sha:
+            self.state.set("LastCommitSHA_pre_transition", commit_sha)
+            self.state.save()
+            print(f"  - Stored pre-transition commit SHA: {commit_sha[:7]}")
+        else:
+            print("  - Warning: Could not retrieve pre-transition commit SHA.")
+        print("--- Pre-Transition Actions Complete ---")
 
-    def _run_post_transition_actions(self):
-        if self.current_stage == "Coder":
-            git_handler.save_current_commit_sha()
-            changed_files, diff = git_handler.get_changes_since_last_commit()
-            deliverable_path = Path(DELIVERABLE_PATHS["Coder"]) / f"{self.current_stage.lower()}_deliverable.md"
-            deliverable_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(deliverable_path, "w") as f:
-                f.write(f"# {self.current_stage} Stage Deliverable\n\n")
-                f.write("## Changed Files\n\n")
-                f.write("\n".join(f"- `{file}`" for file in changed_files))
-                f.write("\n\n## Diff\n\n")
-                f.write(f"```diff\n{diff}\n```")
+    def _run_post_transition_actions(self, previous_stage):
+        """Actions to run after a stage transition is complete."""
+        print("--- Running Post-Transition Actions ---")
+        git_manager = git_handler.GitManager(str(Path.cwd()))
+        
+        # The 'approve' command should have already made a commit.
+        # We save the new commit SHA.
+        current_commit_sha = git_manager.get_current_commit_sha()
+        if current_commit_sha:
+            self.state.set("LastCommitSHA", current_commit_sha)
+            self.state.save()
+            print(f"  - Saved current commit SHA: {current_commit_sha[:7]}")
+        else:
+            print("  - Warning: Could not retrieve current commit SHA.")
+
+        # Generate Coder deliverable if coming from the Coder stage
+        if previous_stage == "Coder":
+            print("  - Generating Coder stage deliverable...")
+            # The 'previous' SHA is the one we stored before this transition's commit
+            previous_commit_sha = self.state.get("LastCommitSHA_pre_transition")
+
+            if previous_commit_sha and previous_commit_sha != current_commit_sha:
+                changed_files, diff = git_manager.get_changes(previous_commit_sha)
+                if diff:
+                    deliverable_path = Path(DELIVERABLE_PATHS["Coder"]) / f"{previous_stage.lower()}_deliverable.md"
+                    deliverable_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(deliverable_path, "w") as f:
+                        f.write(f"# {previous_stage} Stage Deliverable\n\n")
+                        f.write(f"Changes between {previous_commit_sha[:7]} and {current_commit_sha[:7]}\n\n")
+                        f.write("## Changed Files\n\n")
+                        f.write("\n".join(f"- `{file}`" for file in changed_files))
+                        f.write("\n\n## Diff\n\n")
+                        f.write(f"```diff\n{diff}\n```")
+                    print(f"  - Coder deliverable created at: {deliverable_path}")
+                else:
+                    print("  - No diff found since pre-transition commit. Deliverable not generated.")
+            else:
+                print("  - Warning: Could not determine previous commit or no new commit was made. Cannot generate diff.")
+
+        # Clean up the pre-transition SHA from the state file
+        if self.state.get("LastCommitSHA_pre_transition"):
+            self.state.set("LastCommitSHA_pre_transition", "")
+            self.state.save()
+
+        print("--- Post-Transition Actions Complete ---")
 
 
 
